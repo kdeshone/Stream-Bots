@@ -1,19 +1,22 @@
-# PDF Page Reorder
+# PDF Reorder + Table of Contents
 
-Upload a scanned PDF, mark where the page numbers appear on a few pages, and download a correctly ordered PDF.
+Streamlit app for fixing the page order of a scanned textbook and auto-generating
+a navigable table of contents.  Built for AICE Thinking Skills, but works with any
+scanned textbook.
 
-## How it works
+## What it does
 
-1. **Upload** your scanned PDF
-2. **Mark regions** — click any page thumbnail and drag to draw a box around where the page number is printed. Repeat on a second page if odd and even pages have numbers in different positions (e.g., alternating corners)
-3. **Preview OCR** — the tool shows you what numbers it reads from a sample of pages so you can confirm the region is correct
-4. **Download** — pages are sorted by detected number; any pages where a number couldn't be found are placed at the end
+| Step | Description |
+|------|-------------|
+| **1 Upload** | Upload your scanned PDF (up to 500 MB) |
+| **2 Mark regions** | Click any page thumbnail, drag to draw a box around where the page number is printed. Add a second region if odd/even pages have numbers in different corners |
+| **3 Reorder** | OCRs every page in your marked region(s) and sorts pages by detected number |
+| **4 Build TOC** | OCRs every page for headings using AICE TS–aware keyword detection, then shows you an editable table you can clean up |
+| **5 Download** | Downloads the reordered PDF with an optional visual TOC page prepended and PDF bookmarks embedded |
 
 ## Setup
 
-### System requirement
-
-You need [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) installed:
+### 1. Install Tesseract OCR
 
 ```bash
 # Ubuntu / Debian
@@ -22,26 +25,38 @@ sudo apt-get install tesseract-ocr
 # macOS
 brew install tesseract
 
-# Windows — download installer from:
-# https://github.com/UB-Mannheim/tesseract/wiki
+# Windows — https://github.com/UB-Mannheim/tesseract/wiki
 ```
 
-### Python dependencies
+### 2. Install Python dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Run
+### 3. Run
 
 ```bash
-python app.py
-# Open http://localhost:5000
+streamlit run streamlit_app.py
 ```
+
+Open http://localhost:8501 in your browser.
+
+## Deploying to Streamlit Community Cloud
+
+1. Push this repository to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io) and connect the repo
+3. Set **Main file path** to `pdf-reorder/streamlit_app.py`
+4. Add a `packages.txt` at the repo root containing:
+   ```
+   tesseract-ocr
+   ```
+   Streamlit Cloud runs this with `apt-get install` before starting the app.
 
 ## Command-line alternative
 
-If you prefer a script, `reorder_cli.py` can fix the common single-sided scan pattern (odd pages first, then reversed even pages) without OCR:
+`reorder_cli.py` handles the common single-sided scan pattern (odd pages first,
+reversed even pages) without OCR — useful for quick fixes:
 
 ```bash
 python reorder_cli.py scanned_book.pdf
@@ -49,8 +64,9 @@ python reorder_cli.py scanned_book.pdf -o fixed.pdf
 python reorder_cli.py scanned_book.pdf --order 1,3,5,2,4,6
 ```
 
-## Tips for best OCR results
+## Tips
 
-- Make sure the box you draw tightly surrounds just the page number — extra text in the region reduces accuracy
-- If the number is printed faintly, try a larger region with a bit of padding around the digit
-- Page numbers in headers/footers with roman numerals won't be detected (digits only); those pages will appear at the end and you can manually move them
+- Draw the page-number box **tightly** — extra text in the region reduces OCR accuracy
+- If OCR misses many pages, try drawing on a different sample page and adding a second region
+- The TOC scan is smart enough to find "Unit 1", "Chapter 2", "Skills Focus", "Key Terms", "Exam Practice", etc. out of the box
+- After scanning, use the editable table to delete any false-positive headings before downloading
