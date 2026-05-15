@@ -45,6 +45,7 @@ class CommandRegistry:
         self.register("tiktok", self._cmd_tiktok)
         self.register("so", self._cmd_so)
         self.register("lurk", self._cmd_lurk)
+        self.register("schedule", self._cmd_schedule)
 
     async def _cmd_commands(self, ctx: CommandContext) -> str:
         names = " | ".join(f"{config.COMMAND_PREFIX}{n}" for n in self.names())
@@ -84,6 +85,14 @@ class CommandRegistry:
 
     async def _cmd_lurk(self, ctx: CommandContext) -> str:
         return f"Thanks for the lurk, {ctx.user}! We see you PogChamp"
+
+    async def _cmd_schedule(self, ctx: CommandContext) -> str:
+        return (
+            "Stream schedule: "
+            "Mon/Wed/Fri @ 7 PM ET | "
+            "Sat @ 2 PM ET — "
+            f"Follow on Twitch so you never miss it: {config.SOCIAL_TWITCH}"
+        )
 
 
 # Single shared instance used by all bots.
