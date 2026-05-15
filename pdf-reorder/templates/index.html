@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PDF Page Reorder</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.08);
+      padding: 2.5rem;
+      max-width: 560px;
+      width: 100%;
+    }
+
+    h1 { font-size: 1.5rem; margin-bottom: .25rem; }
+    .subtitle { color: #666; font-size: .9rem; margin-bottom: 2rem; }
+
+    label { display: block; font-weight: 600; margin-bottom: .4rem; }
+
+    .drop-zone {
+      border: 2px dashed #ccc;
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      color: #888;
+      margin-bottom: 1.5rem;
+    }
+    .drop-zone.dragover, .drop-zone:hover { border-color: #4f8ef7; background: #f0f6ff; }
+    .drop-zone input[type="file"] { display: none; }
+    .drop-zone .icon { font-size: 2rem; margin-bottom: .5rem; }
+    #file-name { font-size: .85rem; color: #4f8ef7; margin-top: .5rem; font-weight: 600; }
+
+    .modes { display: flex; gap: .75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .mode-btn {
+      flex: 1;
+      min-width: 140px;
+      padding: .75rem 1rem;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      background: #fafafa;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color .2s, background .2s;
+    }
+    .mode-btn.active { border-color: #4f8ef7; background: #f0f6ff; }
+    .mode-btn .mode-title { font-weight: 700; font-size: .9rem; }
+    .mode-btn .mode-desc { font-size: .78rem; color: #666; margin-top: .2rem; }
+
+    #custom-order-section { margin-bottom: 1.5rem; display: none; }
+    #custom-order-section textarea {
+      width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: .6rem;
+      font-size: .9rem;
+      resize: vertical;
+      min-height: 80px;
+    }
+    .hint { font-size: .78rem; color: #888; margin-top: .3rem; }
+
+    .submit-btn {
+      width: 100%;
+      padding: .85rem;
+      background: #4f8ef7;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .submit-btn:hover:not(:disabled) { background: #2d6fdb; }
+    .submit-btn:disabled { background: #aac4f7; cursor: not-allowed; }
+
+    #status {
+      margin-top: 1rem;
+      padding: .75rem 1rem;
+      border-radius: 6px;
+      font-size: .88rem;
+      display: none;
+    }
+    #status.info { background: #e8f0fe; color: #1a56db; display: block; }
+    #status.error { background: #fde8e8; color: #c0392b; display: block; }
+    #status.success { background: #e8fde8; color: #1a7a1a; display: block; }
+
+    .explainer {
+      background: #fffbea;
+      border-left: 3px solid #f0c040;
+      border-radius: 4px;
+      padding: .75rem 1rem;
+      font-size: .83rem;
+      color: #555;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>PDF Page Reorder</h1>
+    <p class="subtitle">Fix page order from single-sided scans of double-sided books.</p>
+
+    <div class="explainer">
+      <strong>How single-sided scanning works:</strong><br>
+      You scan odd pages first (1, 3, 5…), flip the stack, then scan even pages — which
+      come out in reverse (…6, 4, 2). This tool interleaves them back into reading order.
+    </div>
+
+    <form id="reorder-form">
+      <label>1. Upload your PDF</label>
+      <div class="drop-zone" id="drop-zone">
+        <div class="icon">📄</div>
+        <div>Drag &amp; drop your PDF here, or click to browse</div>
+        <div id="file-name"></div>
+        <input type="file" id="pdf-input" name="pdf" accept=".pdf" />
+      </div>
+
+      <label>2. Choose reorder mode</label>
+      <div class="modes">
+        <button type="button" class="mode-btn active" data-mode="single_sided">
+          <div class="mode-title">Single-sided scan</div>
+          <div class="mode-desc">Odd pages first, then reversed even pages</div>
+        </button>
+        <button type="button" class="mode-btn" data-mode="custom">
+          <div class="mode-title">Custom order</div>
+          <div class="mode-desc">Specify exact page order manually</div>
+        </button>
+      </div>
+
+      <div id="custom-order-section">
+        <label>Page order <span style="font-weight:400">(comma-separated)</span></label>
+        <textarea id="custom-order" placeholder="e.g. 1, 3, 5, 2, 4, 6"></textarea>
+        <div class="hint" id="page-count-hint">Upload a PDF first to see its page count.</div>
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-btn" disabled>
+        Reorder &amp; Download
+      </button>
+    </form>
+
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("pdf-input");
+    const fileNameEl = document.getElementById("file-name");
+    const form = document.getElementById("reorder-form");
+    const submitBtn = document.getElementById("submit-btn");
+    const statusEl = document.getElementById("status");
+    const customSection = document.getElementById("custom-order-section");
+    const pageCountHint = document.getElementById("page-count-hint");
+
+    let selectedMode = "single_sided";
+    let pageCount = 0;
+
+    // Drop zone
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", e => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file.name.toLowerCase().endsWith(".pdf")) {
+        setStatus("error", "Please select a PDF file.");
+        return;
+      }
+      fileNameEl.textContent = file.name;
+      fileInput._file = file;
+      submitBtn.disabled = false;
+      setStatus("info", "Fetching page count…");
+
+      const fd = new FormData();
+      fd.append("pdf", file);
+      fetch("/page-count", { method: "POST", body: fd })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) { setStatus("error", data.error); return; }
+          pageCount = data.pages;
+          pageCountHint.textContent = `This PDF has ${pageCount} pages. Enter page numbers 1–${pageCount}.`;
+          setStatus("success", `Loaded: ${file.name} (${pageCount} pages). Click "Reorder & Download" when ready.`);
+        })
+        .catch(() => setStatus("error", "Could not read page count."));
+    }
+
+    // Mode buttons
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        selectedMode = btn.dataset.mode;
+        customSection.style.display = selectedMode === "custom" ? "block" : "none";
+      });
+    });
+
+    // Form submit
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+
+      const file = fileInput.files[0] || fileInput._file;
+      if (!file) { setStatus("error", "Please select a PDF."); return; }
+
+      const fd = new FormData();
+      fd.append("pdf", file);
+      fd.append("mode", selectedMode);
+      if (selectedMode === "custom") {
+        fd.append("order", document.getElementById("custom-order").value);
+      }
+
+      submitBtn.disabled = true;
+      setStatus("info", "Processing… this may take a moment for large files.");
+
+      try {
+        const res = await fetch("/reorder", { method: "POST", body: fd });
+        if (!res.ok) {
+          const data = await res.json();
+          setStatus("error", data.error || "Server error.");
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const disposition = res.headers.get("Content-Disposition") || "";
+        const match = disposition.match(/filename="?([^"]+)"?/);
+        a.download = match ? match[1] : "reordered.pdf";
+        a.href = url;
+        a.click();
+        URL.revokeObjectURL(url);
+        setStatus("success", "Done! Your reordered PDF is downloading.");
+      } catch (err) {
+        setStatus("error", "Network error: " + err.message);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    function setStatus(type, msg) {
+      statusEl.className = type;
+      statusEl.textContent = msg;
+    }
+  </script>
+</body>
+</html>
