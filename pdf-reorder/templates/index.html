@@ -1,268 +1,610 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>PDF Page Reorder</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: system-ui, sans-serif;
-      background: #f5f5f5;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
+    :root {
+      --blue: #4f8ef7;
+      --blue-dark: #2d6fdb;
+      --green: #1a7a1a;
+      --red: #c0392b;
+      --bg: #f0f2f5;
+      --card: #fff;
+      --border: #dde1e8;
+      --muted: #666;
+      --radius: 10px;
     }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: #222; padding: 1.5rem; }
+    h1 { font-size: 1.5rem; margin-bottom: .2rem; }
+    .subtitle { color: var(--muted); font-size: .9rem; margin-bottom: 1.5rem; }
 
+    /* ── Steps ── */
+    .steps { display: flex; gap: .5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .step {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .82rem; color: var(--muted); padding: .3rem .7rem;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--card);
+      transition: all .2s;
+    }
+    .step.active { border-color: var(--blue); color: var(--blue); font-weight: 700; background: #eef3fe; }
+    .step.done { border-color: #aaa; color: #555; }
+    .step-num {
+      width: 1.3rem; height: 1.3rem; border-radius: 50%; background: var(--border);
+      display: flex; align-items: center; justify-content: center; font-size: .75rem; font-weight: 700;
+    }
+    .step.active .step-num { background: var(--blue); color: #fff; }
+    .step.done .step-num { background: #aaa; color: #fff; }
+
+    /* ── Cards ── */
     .card {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 4px 24px rgba(0,0,0,.08);
-      padding: 2.5rem;
-      max-width: 560px;
-      width: 100%;
+      background: var(--card); border-radius: var(--radius);
+      box-shadow: 0 2px 12px rgba(0,0,0,.07); padding: 1.5rem; margin-bottom: 1.5rem;
     }
+    .card-title { font-weight: 700; font-size: 1rem; margin-bottom: 1rem; }
 
-    h1 { font-size: 1.5rem; margin-bottom: .25rem; }
-    .subtitle { color: #666; font-size: .9rem; margin-bottom: 2rem; }
-
-    label { display: block; font-weight: 600; margin-bottom: .4rem; }
-
+    /* ── Upload ── */
     .drop-zone {
-      border: 2px dashed #ccc;
-      border-radius: 8px;
-      padding: 2rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color .2s, background .2s;
-      color: #888;
-      margin-bottom: 1.5rem;
-    }
-    .drop-zone.dragover, .drop-zone:hover { border-color: #4f8ef7; background: #f0f6ff; }
-    .drop-zone input[type="file"] { display: none; }
-    .drop-zone .icon { font-size: 2rem; margin-bottom: .5rem; }
-    #file-name { font-size: .85rem; color: #4f8ef7; margin-top: .5rem; font-weight: 600; }
-
-    .modes { display: flex; gap: .75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-    .mode-btn {
-      flex: 1;
-      min-width: 140px;
-      padding: .75rem 1rem;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      background: #fafafa;
-      cursor: pointer;
-      text-align: left;
+      border: 2px dashed var(--border); border-radius: 8px; padding: 2.5rem 2rem;
+      text-align: center; cursor: pointer; color: var(--muted);
       transition: border-color .2s, background .2s;
     }
-    .mode-btn.active { border-color: #4f8ef7; background: #f0f6ff; }
-    .mode-btn .mode-title { font-weight: 700; font-size: .9rem; }
-    .mode-btn .mode-desc { font-size: .78rem; color: #666; margin-top: .2rem; }
+    .drop-zone:hover, .drop-zone.over { border-color: var(--blue); background: #f0f6ff; }
+    .drop-zone .icon { font-size: 2.2rem; }
+    .drop-zone input { display: none; }
+    #upload-filename { margin-top: .5rem; font-size: .85rem; color: var(--blue); font-weight: 600; }
 
-    #custom-order-section { margin-bottom: 1.5rem; display: none; }
-    #custom-order-section textarea {
-      width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: .6rem;
-      font-size: .9rem;
-      resize: vertical;
-      min-height: 80px;
+    /* ── Thumbnail grid ── */
+    #page-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: .75rem; max-height: 500px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: 8px; padding: .75rem;
     }
-    .hint { font-size: .78rem; color: #888; margin-top: .3rem; }
+    .thumb-wrap {
+      position: relative; cursor: pointer; border-radius: 6px; overflow: hidden;
+      border: 2px solid transparent; transition: border-color .15s, transform .15s;
+      background: #eee;
+    }
+    .thumb-wrap:hover { border-color: var(--blue); transform: scale(1.02); }
+    .thumb-wrap img { width: 100%; display: block; }
+    .thumb-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,.55); color: #fff; font-size: .72rem;
+      text-align: center; padding: .15rem;
+    }
+    .thumb-wrap.has-region { border-color: #f0c040; }
+    .thumb-wrap.has-region .thumb-label { background: rgba(180,130,0,.8); }
 
-    .submit-btn {
-      width: 100%;
-      padding: .85rem;
-      background: #4f8ef7;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: background .2s;
+    /* ── Region selector modal ── */
+    #region-modal {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,.65); align-items: center; justify-content: center;
     }
-    .submit-btn:hover:not(:disabled) { background: #2d6fdb; }
-    .submit-btn:disabled { background: #aac4f7; cursor: not-allowed; }
+    #region-modal.open { display: flex; }
+    .modal-inner {
+      background: var(--card); border-radius: var(--radius); padding: 1.2rem;
+      max-width: 90vw; max-height: 90vh; overflow: auto; position: relative;
+    }
+    .modal-title { font-weight: 700; margin-bottom: .75rem; font-size: .95rem; }
+    .modal-hint { font-size: .8rem; color: var(--muted); margin-bottom: .6rem; }
+    #canvas-wrap { position: relative; display: inline-block; cursor: crosshair; }
+    #canvas-wrap img { display: block; max-width: 100%; max-height: 70vh; }
+    #sel-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .modal-actions { display: flex; gap: .6rem; margin-top: .75rem; flex-wrap: wrap; }
 
-    #status {
-      margin-top: 1rem;
-      padding: .75rem 1rem;
-      border-radius: 6px;
-      font-size: .88rem;
-      display: none;
+    /* ── Regions list ── */
+    #regions-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+    .region-chip {
+      display: flex; align-items: center; gap: .4rem;
+      background: #fff8e1; border: 1px solid #f0c040; border-radius: 999px;
+      padding: .25rem .75rem; font-size: .82rem; font-weight: 600;
     }
-    #status.info { background: #e8f0fe; color: #1a56db; display: block; }
-    #status.error { background: #fde8e8; color: #c0392b; display: block; }
-    #status.success { background: #e8fde8; color: #1a7a1a; display: block; }
+    .region-chip button {
+      background: none; border: none; cursor: pointer; color: #888; font-size: 1rem; line-height: 1;
+    }
+    .region-chip button:hover { color: var(--red); }
 
-    .explainer {
-      background: #fffbea;
-      border-left: 3px solid #f0c040;
-      border-radius: 4px;
-      padding: .75rem 1rem;
-      font-size: .83rem;
-      color: #555;
-      margin-bottom: 1.5rem;
-      line-height: 1.5;
+    /* ── Preview table ── */
+    #preview-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: .85rem; }
+    th, td { border: 1px solid var(--border); padding: .45rem .7rem; text-align: left; }
+    th { background: #f7f7f7; font-weight: 700; }
+    .ok   { color: var(--green); font-weight: 700; }
+    .fail { color: var(--red); }
+    .thumb-cell img { height: 60px; border-radius: 4px; }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: .55rem 1.1rem; border: none; border-radius: 6px; cursor: pointer;
+      font-size: .88rem; font-weight: 700; transition: background .2s;
     }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--blue-dark); }
+    .btn-secondary { background: #eee; color: #333; }
+    .btn-secondary:hover { background: #ddd; }
+    .btn-success { background: #27ae60; color: #fff; }
+    .btn-success:hover:not(:disabled) { background: #1e8449; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Status ── */
+    .status {
+      padding: .6rem .9rem; border-radius: 6px; font-size: .85rem; margin-top: .75rem;
+    }
+    .status.info    { background: #e8f0fe; color: #1a56db; }
+    .status.error   { background: #fde8e8; color: var(--red); }
+    .status.success { background: #e8fde8; color: var(--green); }
+    .hidden { display: none !important; }
+
+    /* ── Progress ── */
+    .progress-bar-wrap { background: #e0e0e0; border-radius: 999px; height: 6px; margin-top: .5rem; }
+    .progress-bar { height: 100%; border-radius: 999px; background: var(--blue); transition: width .3s; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>PDF Page Reorder</h1>
-    <p class="subtitle">Fix page order from single-sided scans of double-sided books.</p>
 
-    <div class="explainer">
-      <strong>How single-sided scanning works:</strong><br>
-      You scan odd pages first (1, 3, 5…), flip the stack, then scan even pages — which
-      come out in reverse (…6, 4, 2). This tool interleaves them back into reading order.
-    </div>
+<h1>PDF Page Reorder</h1>
+<p class="subtitle">Upload a scanned PDF, mark where page numbers appear, and get pages in the correct order.</p>
 
-    <form id="reorder-form">
-      <label>1. Upload your PDF</label>
-      <div class="drop-zone" id="drop-zone">
-        <div class="icon">📄</div>
-        <div>Drag &amp; drop your PDF here, or click to browse</div>
-        <div id="file-name"></div>
-        <input type="file" id="pdf-input" name="pdf" accept=".pdf" />
-      </div>
+<div class="steps">
+  <div class="step active" id="s1"><span class="step-num">1</span> Upload</div>
+  <div class="step" id="s2"><span class="step-num">2</span> Mark regions</div>
+  <div class="step" id="s3"><span class="step-num">3</span> Preview OCR</div>
+  <div class="step" id="s4"><span class="step-num">4</span> Download</div>
+</div>
 
-      <label>2. Choose reorder mode</label>
-      <div class="modes">
-        <button type="button" class="mode-btn active" data-mode="single_sided">
-          <div class="mode-title">Single-sided scan</div>
-          <div class="mode-desc">Odd pages first, then reversed even pages</div>
-        </button>
-        <button type="button" class="mode-btn" data-mode="custom">
-          <div class="mode-title">Custom order</div>
-          <div class="mode-desc">Specify exact page order manually</div>
-        </button>
-      </div>
+<!-- Step 1: Upload -->
+<div class="card" id="card-upload">
+  <div class="card-title">1. Upload your scanned PDF</div>
+  <div class="drop-zone" id="drop-zone">
+    <div class="icon">📄</div>
+    <div>Drag &amp; drop PDF here, or click to browse</div>
+    <div id="upload-filename"></div>
+    <input type="file" id="file-input" accept=".pdf"/>
+  </div>
+  <div id="upload-status"></div>
+</div>
 
-      <div id="custom-order-section">
-        <label>Page order <span style="font-weight:400">(comma-separated)</span></label>
-        <textarea id="custom-order" placeholder="e.g. 1, 3, 5, 2, 4, 6"></textarea>
-        <div class="hint" id="page-count-hint">Upload a PDF first to see its page count.</div>
-      </div>
+<!-- Step 2: Mark regions -->
+<div class="card hidden" id="card-regions">
+  <div class="card-title">2. Show the tool where page numbers appear</div>
+  <p style="font-size:.85rem;color:var(--muted);margin-bottom:.75rem;">
+    Click any page thumbnail below, then drag to draw a box around the page number.
+    Repeat on a second page if odd and even pages have numbers in different corners.
+  </p>
 
-      <button type="submit" class="submit-btn" id="submit-btn" disabled>
-        Reorder &amp; Download
-      </button>
-    </form>
+  <div id="page-grid"></div>
 
-    <div id="status"></div>
+  <div style="margin-top:1rem;">
+    <strong style="font-size:.85rem;">Marked regions:</strong>
+    <div id="regions-list"><em style="color:var(--muted);font-size:.82rem;">None yet — click a page above.</em></div>
   </div>
 
-  <script>
-    const dropZone = document.getElementById("drop-zone");
-    const fileInput = document.getElementById("pdf-input");
-    const fileNameEl = document.getElementById("file-name");
-    const form = document.getElementById("reorder-form");
-    const submitBtn = document.getElementById("submit-btn");
-    const statusEl = document.getElementById("status");
-    const customSection = document.getElementById("custom-order-section");
-    const pageCountHint = document.getElementById("page-count-hint");
+  <div style="margin-top:1rem;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;">
+    <button class="btn btn-primary" id="btn-preview" disabled>Preview OCR results</button>
+    <span style="font-size:.8rem;color:var(--muted);" id="region-hint">Mark at least one region first.</span>
+  </div>
+  <div id="regions-status"></div>
+</div>
 
-    let selectedMode = "single_sided";
-    let pageCount = 0;
+<!-- Step 3: Preview -->
+<div class="card hidden" id="card-preview">
+  <div class="card-title">3. OCR preview — confirm page numbers look correct</div>
+  <p style="font-size:.85rem;color:var(--muted);margin-bottom:.75rem;">
+    Showing a sample of pages. Green = number detected; red = not found (these pages will be placed at the end).
+  </p>
+  <div id="preview-wrap"></div>
+  <div style="margin-top:1rem;display:flex;gap:.6rem;flex-wrap:wrap;">
+    <button class="btn btn-success" id="btn-reorder" disabled>Reorder all pages &amp; download</button>
+    <button class="btn btn-secondary" id="btn-back">Adjust regions</button>
+  </div>
+  <div id="preview-status"></div>
+  <div id="progress-wrap" class="hidden" style="margin-top:.5rem;">
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar" style="width:0%"></div></div>
+    <div id="progress-label" style="font-size:.78rem;color:var(--muted);margin-top:.3rem;"></div>
+  </div>
+</div>
 
-    // Drop zone
-    dropZone.addEventListener("click", () => fileInput.click());
-    dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
-    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
-    dropZone.addEventListener("drop", e => {
-      e.preventDefault();
-      dropZone.classList.remove("dragover");
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
-    });
-    fileInput.addEventListener("change", () => {
-      if (fileInput.files[0]) handleFile(fileInput.files[0]);
-    });
+<!-- Step 4: Done -->
+<div class="card hidden" id="card-done">
+  <div class="card-title">4. Done!</div>
+  <div id="done-body"></div>
+</div>
 
-    function handleFile(file) {
-      if (!file.name.toLowerCase().endsWith(".pdf")) {
-        setStatus("error", "Please select a PDF file.");
-        return;
+<!-- Region selector modal -->
+<div id="region-modal">
+  <div class="modal-inner">
+    <div class="modal-title" id="modal-title">Draw a box around the page number</div>
+    <div class="modal-hint">Click and drag on the page image below.</div>
+    <div id="canvas-wrap">
+      <img id="modal-img" src="" alt="page"/>
+      <canvas id="sel-canvas"></canvas>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="btn-confirm-region" disabled>Save this region</button>
+      <button class="btn btn-secondary" id="btn-clear-sel">Clear selection</button>
+      <button class="btn btn-secondary" id="btn-close-modal">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let sessionId = null;
+let pageCount  = 0;
+let regions    = [];    // [{x,y,w,h}, ...] normalised 0-1
+let currentModalPage = null;
+let sel = null;         // {x0,y0,x1,y1} in canvas px while drawing
+
+// ── Helpers ──
+function $id(id){ return document.getElementById(id); }
+function showStatus(el, type, msg){
+  el.className = `status ${type}`;
+  el.textContent = msg;
+}
+function setStep(n){
+  for(let i=1;i<=4;i++){
+    const s = $id(`s${i}`);
+    s.classList.toggle('active', i===n);
+    s.classList.toggle('done', i<n);
+  }
+}
+
+// ── Upload ──
+const dropZone   = $id('drop-zone');
+const fileInput  = $id('file-input');
+const uploadStat = $id('upload-status');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('over'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => fileInput.files[0] && handleFile(fileInput.files[0]));
+
+async function handleFile(file){
+  if(!file.name.toLowerCase().endsWith('.pdf')){
+    showStatus(uploadStat,'error','Please select a PDF file.');
+    return;
+  }
+  $id('upload-filename').textContent = file.name;
+  showStatus(uploadStat,'info','Uploading…');
+
+  const fd = new FormData();
+  fd.append('pdf', file);
+  try{
+    const res = await fetch('/upload', {method:'POST', body:fd});
+    const data = await res.json();
+    if(data.error){ showStatus(uploadStat,'error',data.error); return; }
+    sessionId = data.session_id;
+    pageCount  = data.page_count;
+    showStatus(uploadStat,'success', `Loaded: ${file.name} — ${pageCount} pages.`);
+    initPageGrid();
+    $id('card-regions').classList.remove('hidden');
+    setStep(2);
+  } catch(e){
+    showStatus(uploadStat,'error','Upload failed: '+e.message);
+  }
+}
+
+// ── Thumbnail grid ──
+function initPageGrid(){
+  const grid = $id('page-grid');
+  grid.innerHTML = '';
+  for(let i=0;i<pageCount;i++){
+    const wrap = document.createElement('div');
+    wrap.className = 'thumb-wrap';
+    wrap.dataset.page = i;
+
+    const img = document.createElement('img');
+    img.alt = `Page ${i+1}`;
+    img.loading = 'lazy';
+    img.dataset.src = `/page/${sessionId}/${i}`;
+
+    const lbl = document.createElement('div');
+    lbl.className = 'thumb-label';
+    lbl.textContent = `Page ${i+1}`;
+
+    wrap.appendChild(img);
+    wrap.appendChild(lbl);
+    grid.appendChild(wrap);
+
+    wrap.addEventListener('click', () => openModal(i));
+  }
+  lazyLoad();
+}
+
+function lazyLoad(){
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if(e.isIntersecting){
+        const img = e.target.querySelector('img');
+        if(img && img.dataset.src){ img.src = img.dataset.src; delete img.dataset.src; }
+        io.unobserve(e.target);
       }
-      fileNameEl.textContent = file.name;
-      fileInput._file = file;
-      submitBtn.disabled = false;
-      setStatus("info", "Fetching page count…");
+    });
+  }, {root: $id('page-grid'), rootMargin:'200px'});
+  document.querySelectorAll('.thumb-wrap').forEach(w => io.observe(w));
+}
 
-      const fd = new FormData();
-      fd.append("pdf", file);
-      fetch("/page-count", { method: "POST", body: fd })
-        .then(r => r.json())
-        .then(data => {
-          if (data.error) { setStatus("error", data.error); return; }
-          pageCount = data.pages;
-          pageCountHint.textContent = `This PDF has ${pageCount} pages. Enter page numbers 1–${pageCount}.`;
-          setStatus("success", `Loaded: ${file.name} (${pageCount} pages). Click "Reorder & Download" when ready.`);
-        })
-        .catch(() => setStatus("error", "Could not read page count."));
+function markThumb(pageNum, hasRegion){
+  const w = document.querySelector(`.thumb-wrap[data-page="${pageNum}"]`);
+  if(w){
+    const lbl = w.querySelector('.thumb-label');
+    if(hasRegion){
+      w.classList.add('has-region');
+      lbl.textContent = `Page ${pageNum+1} ✓`;
+    } else {
+      w.classList.remove('has-region');
+      lbl.textContent = `Page ${pageNum+1}`;
     }
+  }
+}
 
-    // Mode buttons
-    document.querySelectorAll(".mode-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        selectedMode = btn.dataset.mode;
-        customSection.style.display = selectedMode === "custom" ? "block" : "none";
-      });
+// ── Regions list UI ──
+function renderRegionsList(){
+  const list = $id('regions-list');
+  const hint = $id('region-hint');
+  const btn  = $id('btn-preview');
+
+  if(!regions.length){
+    list.innerHTML = '<em style="color:var(--muted);font-size:.82rem;">None yet — click a page above.</em>';
+    hint.textContent = 'Mark at least one region first.';
+    btn.disabled = true;
+    return;
+  }
+  list.innerHTML = '';
+  regions.forEach((r,i) => {
+    const chip = document.createElement('div');
+    chip.className = 'region-chip';
+    chip.innerHTML = `<span>Region ${i+1} — page ${r._sourcePage+1}</span>
+      <button title="Remove" data-idx="${i}">✕</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      const pg = regions[i]._sourcePage;
+      regions.splice(i,1);
+      // clear thumb marker if no other region from same page
+      if(!regions.find(r=>r._sourcePage===pg)) markThumb(pg,false);
+      renderRegionsList();
     });
+    list.appendChild(chip);
+  });
+  hint.textContent = '';
+  btn.disabled = false;
+}
 
-    // Form submit
-    form.addEventListener("submit", async e => {
-      e.preventDefault();
+// ── Modal ──
+const modal       = $id('region-modal');
+const modalImg    = $id('modal-img');
+const canvas      = $id('sel-canvas');
+const ctx         = canvas.getContext('2d');
+const btnConfirm  = $id('btn-confirm-region');
+const btnClear    = $id('btn-clear-sel');
+const btnClose    = $id('btn-close-modal');
 
-      const file = fileInput.files[0] || fileInput._file;
-      if (!file) { setStatus("error", "Please select a PDF."); return; }
+function openModal(pageNum){
+  currentModalPage = pageNum;
+  sel = null;
+  btnConfirm.disabled = true;
+  $id('modal-title').textContent = `Page ${pageNum+1} — drag to mark the page number`;
+  modalImg.src = `/page/${sessionId}/${pageNum}`;
+  modalImg.onload = () => {
+    canvas.width  = modalImg.naturalWidth;
+    canvas.height = modalImg.naturalHeight;
+    canvas.style.width  = modalImg.clientWidth  + 'px';
+    canvas.style.height = modalImg.clientHeight + 'px';
+    clearCanvas();
+  };
+  modal.classList.add('open');
+}
 
-      const fd = new FormData();
-      fd.append("pdf", file);
-      fd.append("mode", selectedMode);
-      if (selectedMode === "custom") {
-        fd.append("order", document.getElementById("custom-order").value);
-      }
+btnClose.addEventListener('click', () => modal.classList.remove('open'));
+btnClear.addEventListener('click', () => { sel = null; clearCanvas(); btnConfirm.disabled = true; });
 
-      submitBtn.disabled = true;
-      setStatus("info", "Processing… this may take a moment for large files.");
+btnConfirm.addEventListener('click', () => {
+  if(!sel) return;
+  const iw = modalImg.naturalWidth, ih = modalImg.naturalHeight;
+  const x = Math.min(sel.x0,sel.x1)/iw;
+  const y = Math.min(sel.y0,sel.y1)/ih;
+  const w = Math.abs(sel.x1-sel.x0)/iw;
+  const h = Math.abs(sel.y1-sel.y0)/ih;
+  regions.push({ x, y, w, h, _sourcePage: currentModalPage });
+  markThumb(currentModalPage, true);
+  renderRegionsList();
+  modal.classList.remove('open');
+});
 
-      try {
-        const res = await fetch("/reorder", { method: "POST", body: fd });
-        if (!res.ok) {
-          const data = await res.json();
-          setStatus("error", data.error || "Server error.");
-          return;
-        }
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        const disposition = res.headers.get("Content-Disposition") || "";
-        const match = disposition.match(/filename="?([^"]+)"?/);
-        a.download = match ? match[1] : "reordered.pdf";
-        a.href = url;
-        a.click();
-        URL.revokeObjectURL(url);
-        setStatus("success", "Done! Your reordered PDF is downloading.");
-      } catch (err) {
-        setStatus("error", "Network error: " + err.message);
-      } finally {
-        submitBtn.disabled = false;
-      }
+// Canvas drawing
+let drawing = false, startX, startY;
+
+function canvasCoords(e){
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width  / r.width;
+  const scaleY = canvas.height / r.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return [(clientX - r.left)*scaleX, (clientY - r.top)*scaleY];
+}
+
+canvas.addEventListener('mousedown', e => {
+  drawing = true;
+  [startX, startY] = canvasCoords(e);
+  sel = null;
+  btnConfirm.disabled = true;
+});
+canvas.addEventListener('mousemove', e => {
+  if(!drawing) return;
+  const [cx,cy] = canvasCoords(e);
+  drawRect(startX, startY, cx, cy);
+});
+canvas.addEventListener('mouseup', e => {
+  if(!drawing) return;
+  drawing = false;
+  const [cx,cy] = canvasCoords(e);
+  const w = Math.abs(cx-startX), h = Math.abs(cy-startY);
+  if(w > 5 && h > 5){
+    sel = {x0:startX, y0:startY, x1:cx, y1:cy};
+    btnConfirm.disabled = false;
+  }
+  drawRect(startX, startY, cx, cy);
+});
+canvas.addEventListener('mouseleave', () => { drawing = false; });
+
+// Touch support
+canvas.addEventListener('touchstart', e => { e.preventDefault(); drawing=true; [startX,startY]=canvasCoords(e); });
+canvas.addEventListener('touchmove',  e => { e.preventDefault(); if(!drawing) return; const [cx,cy]=canvasCoords(e); drawRect(startX,startY,cx,cy); });
+canvas.addEventListener('touchend',   e => {
+  e.preventDefault();
+  drawing = false;
+  if(!e.changedTouches) return;
+  const r = canvas.getBoundingClientRect();
+  const scaleX = canvas.width/r.width, scaleY = canvas.height/r.height;
+  const cx = (e.changedTouches[0].clientX - r.left)*scaleX;
+  const cy = (e.changedTouches[0].clientY - r.top)*scaleY;
+  const w = Math.abs(cx-startX), h = Math.abs(cy-startY);
+  if(w>5&&h>5){ sel={x0:startX,y0:startY,x1:cx,y1:cy}; btnConfirm.disabled=false; }
+  drawRect(startX,startY,cx,cy);
+});
+
+function clearCanvas(){ ctx.clearRect(0,0,canvas.width,canvas.height); }
+function drawRect(x0,y0,x1,y1){
+  clearCanvas();
+  ctx.strokeStyle = '#e63946';
+  ctx.lineWidth = 3;
+  ctx.setLineDash([8,4]);
+  ctx.strokeRect(Math.min(x0,x1), Math.min(y0,y1), Math.abs(x1-x0), Math.abs(y1-y0));
+  ctx.fillStyle = 'rgba(230,57,70,.12)';
+  ctx.fillRect(Math.min(x0,x1), Math.min(y0,y1), Math.abs(x1-x0), Math.abs(y1-y0));
+}
+
+// ── Preview ──
+$id('btn-preview').addEventListener('click', runPreview);
+
+async function runPreview(){
+  const stat = $id('regions-status');
+  showStatus(stat,'info','Running OCR on a sample of pages…');
+
+  // Pick a representative sample (first, last, and evenly spread, max 20)
+  const sampleSize = Math.min(20, pageCount);
+  const samplePages = [];
+  for(let i=0;i<sampleSize;i++) samplePages.push(Math.round(i*(pageCount-1)/(sampleSize-1||1)));
+
+  try{
+    const res = await fetch('/ocr-preview', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id:sessionId, regions:regions.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h})), sample_pages:samplePages})
     });
+    const data = await res.json();
+    if(data.error){ showStatus(stat,'error',data.error); return; }
 
-    function setStatus(type, msg) {
-      statusEl.className = type;
-      statusEl.textContent = msg;
-    }
-  </script>
+    buildPreviewTable(data.rows);
+    $id('card-preview').classList.remove('hidden');
+    $id('btn-reorder').disabled = false;
+    setStep(3);
+    stat.className = 'hidden';
+    $id('card-preview').scrollIntoView({behavior:'smooth'});
+  } catch(e){
+    showStatus(stat,'error','Preview failed: '+e.message);
+  }
+}
+
+function buildPreviewTable(rows){
+  const detected = rows.filter(r=>r.detected!==null).length;
+  const total    = rows.length;
+  let html = `<p style="margin-bottom:.6rem;font-size:.85rem;">
+    Detected page number on <strong>${detected}/${total}</strong> sampled pages.
+  </p>
+  <table><thead><tr><th>Thumbnail</th><th>PDF position</th><th>Detected #</th><th>Raw OCR text</th></tr></thead><tbody>`;
+
+  rows.forEach(r => {
+    const ok = r.detected !== null;
+    html += `<tr>
+      <td class="thumb-cell"><img src="/page/${sessionId}/${r.page}" loading="lazy"/></td>
+      <td>Position ${r.page+1}</td>
+      <td class="${ok?'ok':'fail'}">${ok ? r.detected : '—'}</td>
+      <td><code style="font-size:.78rem">${r.region_texts.join(' | ') || '(empty)'}</code></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  $id('preview-wrap').innerHTML = html;
+}
+
+$id('btn-back').addEventListener('click', () => {
+  $id('card-preview').classList.add('hidden');
+  setStep(2);
+  $id('card-regions').scrollIntoView({behavior:'smooth'});
+});
+
+// ── Reorder ──
+$id('btn-reorder').addEventListener('click', runReorder);
+
+async function runReorder(){
+  const stat    = $id('preview-status');
+  const progWrap= $id('progress-wrap');
+  const progBar = $id('progress-bar');
+  const progLbl = $id('progress-label');
+
+  $id('btn-reorder').disabled = true;
+  progWrap.classList.remove('hidden');
+  showStatus(stat,'info','Processing all pages — this may take a minute for large PDFs…');
+
+  // Fake progress while server works
+  let pct = 0;
+  const ticker = setInterval(() => {
+    pct = Math.min(pct + Math.random()*4, 92);
+    progBar.style.width = pct+'%';
+    progLbl.textContent = `Processing… ${Math.round(pct)}%`;
+  }, 600);
+
+  try{
+    const res = await fetch('/reorder-by-ocr', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id:sessionId, regions:regions.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}))})
+    });
+    clearInterval(ticker);
+    progBar.style.width = '100%';
+    progLbl.textContent = 'Done!';
+
+    const data = await res.json();
+    if(data.error){ showStatus(stat,'error',data.error); $id('btn-reorder').disabled=false; return; }
+
+    const found   = data.order.filter(p=>p.detected_number!==null).length;
+    const missing = data.total - found;
+
+    stat.className = 'hidden';
+    progWrap.classList.add('hidden');
+    showDone(data, found, missing);
+  } catch(e){
+    clearInterval(ticker);
+    showStatus(stat,'error','Reorder failed: '+e.message);
+    $id('btn-reorder').disabled=false;
+  }
+}
+
+function showDone(data, found, missing){
+  $id('card-done').classList.remove('hidden');
+  setStep(4);
+
+  let warn = '';
+  if(missing > 0){
+    warn = `<div class="status error" style="margin-bottom:1rem;">
+      ⚠️ ${missing} page(s) had no detectable page number and were placed at the end.
+      Consider adjusting the marked region and re-running.
+    </div>`;
+  }
+
+  $id('done-body').innerHTML = `
+    ${warn}
+    <p style="margin-bottom:1rem;font-size:.9rem;">
+      Sorted <strong>${found}</strong> of <strong>${data.total}</strong> pages by detected page number.
+    </p>
+    <a href="/download/${sessionId}" class="btn btn-success" style="display:inline-block;text-decoration:none;">
+      ⬇ Download reordered PDF
+    </a>
+    <button class="btn btn-secondary" style="margin-left:.5rem;" onclick="location.reload()">Start over</button>
+  `;
+  $id('card-done').scrollIntoView({behavior:'smooth'});
+}
+</script>
 </body>
 </html>

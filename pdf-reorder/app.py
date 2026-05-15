@@ -1,118 +1,236 @@
-import os
 import io
-from flask import Flask, request, send_file, render_template, jsonify
+import os
+import re
+import uuid
+import tempfile
+from pathlib import Path
+
+import fitz  # pymupdf
+import pytesseract
+from PIL import Image
+from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader, PdfWriter
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024  # 200 MB
+app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
+
+TEMP_DIR = Path(tempfile.gettempdir()) / "pdf_reorder"
+TEMP_DIR.mkdir(exist_ok=True)
+
+RENDER_DPI = 1.5   # matrix scale for thumbnails (~108 DPI)
+OCR_DPI    = 4.0   # matrix scale for OCR crops (~288 DPI)
 
 
-def reorder_single_sided_scan(reader: PdfReader) -> PdfWriter:
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def session_dir(sid: str) -> Path:
+    d = TEMP_DIR / sid
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def pdf_path(sid: str) -> Path:
+    return session_dir(sid) / "input.pdf"
+
+
+def render_page_image(sid: str, page_num: int, scale: float = RENDER_DPI) -> bytes:
+    doc = fitz.open(str(pdf_path(sid)))
+    page = doc[page_num]
+    mat = fitz.Matrix(scale, scale)
+    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
+    data = pix.tobytes("png")
+    doc.close()
+    return data
+
+
+def ocr_region(sid: str, page_num: int, bbox: dict) -> str:
     """
-    Fixes page order for a book scanned with a single-sided scanner.
-
-    Scanning workflow:
-      1. Scan all front (odd) pages in order:  1, 3, 5, ...
-      2. Flip the stack, scan back (even) pages — they come out reversed: ..., 6, 4, 2
-
-    The PDF therefore contains pages in this physical order:
-      [front_0, front_1, ..., front_n, back_n, ..., back_1, back_0]
-
-    This function interleaves them back into reading order:
-      front_0, back_0, front_1, back_1, ...
+    OCR a rectangular region of a page.
+    bbox: {x, y, w, h} as fractions of the page (0.0–1.0).
+    Returns raw OCR string (digits only config).
     """
-    total = len(reader.pages)
-    half = total // 2
+    doc = fitz.open(str(pdf_path(sid)))
+    page = doc[page_num]
+    pw, ph = page.rect.width, page.rect.height
 
-    fronts = list(range(half))           # indices 0 .. half-1
-    backs = list(range(total - 1, half - 1, -1))  # indices total-1 .. half (reversed)
+    x0 = bbox["x"] * pw
+    y0 = bbox["y"] * ph
+    x1 = (bbox["x"] + bbox["w"]) * pw
+    y1 = (bbox["y"] + bbox["h"]) * ph
 
-    writer = PdfWriter()
-    for f, b in zip(fronts, backs):
-        writer.add_page(reader.pages[f])
-        writer.add_page(reader.pages[b])
+    mat = fitz.Matrix(OCR_DPI, OCR_DPI)
+    clip = fitz.Rect(x0, y0, x1, y1)
+    pix = page.get_pixmap(matrix=mat, clip=clip, colorspace=fitz.csRGB)
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    doc.close()
 
-    # If there's an odd page out (e.g. a blank last back), append it
-    if total % 2 != 0:
-        writer.add_page(reader.pages[half])
+    # Upscale tiny crops so Tesseract has enough pixels
+    min_dim = 60
+    if img.width < min_dim or img.height < min_dim:
+        scale = max(min_dim / img.width, min_dim / img.height)
+        img = img.resize(
+            (int(img.width * scale), int(img.height * scale)),
+            Image.LANCZOS,
+        )
 
-    return writer
+    # Greyscale + mild contrast boost helps digit recognition
+    grey = img.convert("L")
+    config = "--psm 7 --oem 3 -c tessedit_char_whitelist=0123456789"
+    return pytesseract.image_to_string(grey, config=config).strip()
 
 
-def reorder_custom(reader: PdfReader, order: list[int]) -> PdfWriter:
-    """Reorder pages according to a user-supplied 1-based index list."""
-    writer = PdfWriter()
-    for i in order:
-        writer.add_page(reader.pages[i - 1])
-    return writer
+def parse_number(text: str):
+    nums = re.findall(r"\d+", text)
+    return int(nums[0]) if nums else None
 
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-@app.route("/reorder", methods=["POST"])
-def reorder():
+@app.route("/upload", methods=["POST"])
+def upload():
     if "pdf" not in request.files:
         return jsonify(error="No file uploaded"), 400
-
-    pdf_file = request.files["pdf"]
-    if not pdf_file.filename.lower().endswith(".pdf"):
+    f = request.files["pdf"]
+    if not f.filename.lower().endswith(".pdf"):
         return jsonify(error="Please upload a PDF file"), 400
 
-    mode = request.form.get("mode", "single_sided")
+    sid = str(uuid.uuid4())
+    f.save(str(pdf_path(sid)))
 
     try:
-        reader = PdfReader(pdf_file)
-        total_pages = len(reader.pages)
+        doc = fitz.open(str(pdf_path(sid)))
+        count = doc.page_count
+        doc.close()
+    except Exception as e:
+        return jsonify(error=f"Could not read PDF: {e}"), 500
 
-        if mode == "single_sided":
-            if total_pages < 2:
-                return jsonify(error="PDF must have at least 2 pages"), 400
-            writer = reorder_single_sided_scan(reader)
+    return jsonify(session_id=sid, page_count=count)
 
-        elif mode == "custom":
-            raw = request.form.get("order", "")
-            try:
-                order = [int(x.strip()) for x in raw.split(",") if x.strip()]
-            except ValueError:
-                return jsonify(error="Custom order must be comma-separated page numbers"), 400
-            if not order:
-                return jsonify(error="Custom order is empty"), 400
-            if any(i < 1 or i > total_pages for i in order):
-                return jsonify(error=f"Page numbers must be between 1 and {total_pages}"), 400
-            writer = reorder_custom(reader, order)
 
+@app.route("/page/<sid>/<int:page_num>")
+def get_page(sid, page_num):
+    p = pdf_path(sid)
+    if not p.exists():
+        return "Session not found", 404
+    try:
+        data = render_page_image(sid, page_num)
+        return send_file(io.BytesIO(data), mimetype="image/png")
+    except Exception as e:
+        return str(e), 500
+
+
+@app.route("/ocr-preview", methods=["POST"])
+def ocr_preview():
+    """
+    Test OCR for given regions on a sample of pages.
+    Body: { session_id, regions: [{x,y,w,h}, ...], sample_pages: [0,1,2,...] }
+    Returns: [{ page: N, results: ["12", "", "7", ...] }]
+    """
+    data = request.json or {}
+    sid = data.get("session_id")
+    regions = data.get("regions", [])
+    sample = data.get("sample_pages", [])
+
+    if not sid or not regions:
+        return jsonify(error="Missing session_id or regions"), 400
+
+    p = pdf_path(sid)
+    if not p.exists():
+        return jsonify(error="Session expired or not found"), 404
+
+    rows = []
+    for pg in sample:
+        region_texts = []
+        chosen = None
+        for bbox in regions:
+            text = ocr_region(sid, pg, bbox)
+            region_texts.append(text)
+            if chosen is None and parse_number(text) is not None:
+                chosen = parse_number(text)
+        rows.append({"page": pg, "region_texts": region_texts, "detected": chosen})
+
+    return jsonify(rows=rows)
+
+
+@app.route("/reorder-by-ocr", methods=["POST"])
+def reorder_by_ocr():
+    """
+    OCR every page using the supplied regions, sort by detected page number,
+    append any undetected pages at the end, return the reordered PDF.
+    Body: { session_id, regions: [{x,y,w,h}, ...] }
+    """
+    data = request.json or {}
+    sid = data.get("session_id")
+    regions = data.get("regions", [])
+
+    if not sid or not regions:
+        return jsonify(error="Missing session_id or regions"), 400
+
+    p = pdf_path(sid)
+    if not p.exists():
+        return jsonify(error="Session expired"), 404
+
+    reader = PdfReader(str(p))
+    total = len(reader.pages)
+
+    numbered = []   # (page_number, pdf_index)
+    unknown  = []   # pdf_index
+
+    for i in range(total):
+        found = None
+        for bbox in regions:
+            text = ocr_region(sid, i, bbox)
+            n = parse_number(text)
+            if n is not None:
+                found = n
+                break
+        if found is not None:
+            numbered.append((found, i))
         else:
-            return jsonify(error="Unknown mode"), 400
+            unknown.append(i)
 
-        buf = io.BytesIO()
-        writer.write(buf)
-        buf.seek(0)
+    numbered.sort(key=lambda t: t[0])
 
-        base = os.path.splitext(pdf_file.filename)[0]
-        return send_file(
-            buf,
-            mimetype="application/pdf",
-            as_attachment=True,
-            download_name=f"{base}_reordered.pdf",
-        )
+    writer = PdfWriter()
+    order_info = []
+    for pg_num, idx in numbered:
+        writer.add_page(reader.pages[idx])
+        order_info.append({"pdf_index": idx, "detected_number": pg_num})
+    for idx in unknown:
+        writer.add_page(reader.pages[idx])
+        order_info.append({"pdf_index": idx, "detected_number": None})
 
-    except Exception as e:
-        return jsonify(error=f"Failed to process PDF: {str(e)}"), 500
+    buf = io.BytesIO()
+    writer.write(buf)
+    buf.seek(0)
+
+    # Cache so /download can serve it
+    out = session_dir(sid) / "output.pdf"
+    out.write_bytes(buf.getvalue())
+
+    return jsonify(order=order_info, session_id=sid, total=total)
 
 
-@app.route("/page-count", methods=["POST"])
-def page_count():
-    if "pdf" not in request.files:
-        return jsonify(error="No file"), 400
-    pdf_file = request.files["pdf"]
-    try:
-        reader = PdfReader(pdf_file)
-        return jsonify(pages=len(reader.pages))
-    except Exception as e:
-        return jsonify(error=str(e)), 500
+@app.route("/download/<sid>")
+def download(sid):
+    out = session_dir(sid) / "output.pdf"
+    if not out.exists():
+        return "Not found", 404
+    return send_file(
+        str(out),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="reordered.pdf",
+    )
 
 
 if __name__ == "__main__":
